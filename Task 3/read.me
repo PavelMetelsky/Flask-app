@@ -1,0 +1,18 @@
+Остановить все контейнеры:
+bash
+    docker-compose -f compose/docker-compose.full.yaml down
+
+Удалить старые образы:
+bash 
+    docker-compose -f compose/docker-compose.full.yaml rm -f
+    docker system prune -af --volumes
+
+Запустить заново:
+bash
+    docker-compose -f compose/docker-compose.full.yaml up -d
+
+
+
+
+
+

@@ -1,0 +1,43 @@
+version: '3'
+
+services:
+  flask-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "5000:5000"
+    depends_on:
+      - redis
+    restart: always
+    volumes:
+      - ../src:/app
+    # Adding Prometheus metrics
+    labels:
+      - "prometheus.enable=true"
+      - "prometheus.port=5000"
+      - "prometheus.path=/metrics"
+
+  redis:
+    image: redis:alpine
+    ports:
+      - "6379:6379"
+    restart: always
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../config/prometheus.yml:/etc/prometheus/prometheus.yml
+    restart: always
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    restart: always

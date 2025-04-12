@@ -1,0 +1,83 @@
+services:
+  # Main application
+  flask-app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.optimized
+    expose:
+      - "5000"
+    depends_on:
+      - redis
+    restart: always
+    volumes:
+      - ../src:/app
+    # Adding Prometheus metrics
+    labels:
+      - "prometheus.enable=true"
+      - "prometheus.port=5000"
+      - "prometheus.path=/metrics"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # Redis database
+  redis:
+    image: redis:alpine
+    expose:
+      - "6379"
+    restart: always
+    volumes:
+      - redis-data:/data
+
+  # Nginx as a reverse proxy
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+    volumes:
+      - ../config/nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - flask-app
+    restart: always
+
+  # Monitoring: Prometheus
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ../config/prometheus.yml:/etc/prometheus/prometheus.yml
+    restart: always
+    depends_on:
+      - flask-app
+
+  # Monitoring: Grafana
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    depends_on:
+      - prometheus
+    restart: always
+    volumes:
+      - grafana-data:/var/lib/grafana
+
+  # Redis Exporter for Redis monitoring
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    expose:
+      - "9121"
+    environment:
+      - REDIS_ADDR=redis://redis:6379
+    depends_on:
+      - redis
+    restart: always
+
+volumes:
+  redis-data:
+  grafana-data:
