@@ -5,7 +5,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    # Don't publish port externally, only for internal network
+    # Only for internal network
     expose:
       - "5000"
     depends_on:
