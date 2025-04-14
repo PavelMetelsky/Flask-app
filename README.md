@@ -2,6 +2,64 @@
 
 A modular Flask application with JWT authentication, Redis for visit counting, Swagger documentation, and Prometheus/Grafana monitoring.
 
+```mermaid
+flowchart TD
+    classDef client fill:#9E9E9E,color:white,stroke:#333
+    classDef nginx fill:#29B6F6,color:white,stroke:#333
+    classDef flask fill:#4CAF50,color:white,stroke:#333
+    classDef redis fill:#F44336,color:white,stroke:#333
+    classDef prom fill:#FF9800,color:white,stroke:#333
+    classDef grafana fill:#3F51B5,color:white,stroke:#333
+    classDef volume fill:none,stroke:#333,stroke-dasharray: 5 5
+    
+    subgraph Docker["Docker Compose/Swarm Environment"]
+        CLIENT[Client Browser/App]:::client
+        
+        subgraph NGINX["Nginx Reverse Proxy"]
+            NGINX_PROXY["Static File Caching<br>Load Balancing<br>Port: 80"]:::nginx
+        end
+        
+        subgraph FLASK_APPS["Flask Application Instances"]
+            FLASK1["Flask App #1<br>API Routes (/ping, /count)<br>Auth Routes (/login)<br>JWT Authentication<br>Metrics Exporter"]:::flask
+            FLASK2["Flask App #2<br>API Routes (/ping, /count)<br>Auth Routes (/login)<br>JWT Authentication<br>Metrics Exporter"]:::flask
+            FLASK3["Flask App #3<br>API Routes (/ping, /count)<br>Auth Routes (/login)<br>JWT Authentication<br>Metrics Exporter"]:::flask
+        end
+        
+        subgraph REDIS_STORE["Data Storage"]
+            REDIS["Redis<br>Visit Counter Storage<br>Port: 6379"]:::redis
+            REDIS_VOL["Redis Volume"]:::volume
+            REDIS_EXP["Redis Exporter<br>Port: 9121"]:::prom
+        end
+        
+        subgraph MONITORING["Monitoring Stack"]
+            PROM["Prometheus<br>Metrics Collection<br>Port: 9090"]:::prom
+            GRAFANA["Grafana<br>Visualization<br>Port: 3000"]:::grafana
+            GRAFANA_VOL["Grafana Volume"]:::volume
+        end
+        
+        %% Connections
+        CLIENT --> |HTTP Requests| NGINX_PROXY
+        NGINX_PROXY --> |Load Balance<br>Port: 5000| FLASK1
+        NGINX_PROXY --> |Load Balance<br>Port: 5000| FLASK2
+        NGINX_PROXY --> |Load Balance<br>Port: 5000| FLASK3
+        
+        FLASK1 --> |Store/Retrieve Data| REDIS
+        FLASK2 --> |Store/Retrieve Data| REDIS
+        FLASK3 --> |Store/Retrieve Data| REDIS
+        
+        REDIS --> REDIS_VOL
+        REDIS --- REDIS_EXP
+        
+        PROM -.->|Scrape Metrics| FLASK1
+        PROM -.->|Scrape Metrics| FLASK2
+        PROM -.->|Scrape Metrics| FLASK3
+        PROM -.->|Scrape Metrics| REDIS_EXP
+        
+        PROM --> GRAFANA
+        GRAFANA --> GRAFANA_VOL
+    end
+  ```
+
 ## Project Structure
 
 ```
