@@ -1,11 +1,31 @@
 version: '3.8'
 
+x-app-common: &app-common
+  image: myflaskapp:latest
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.optimized
+  networks:
+    - webnet
+  deploy:
+    restart_policy:
+      condition: on-failure
+    update_config:
+      parallelism: 1
+      delay: 10s
+      order: start-first
+  healthcheck:
+    test: ["CMD", "curl", "-f", "--unix-socket", "/run/gunicorn/socket", "http://localhost/api/ping"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 5s
+  volumes:
+    - gunicorn-socket:/run/gunicorn
+
 services:
   flask-app:
-    image: myflaskapp:latest
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.optimized
+    <<: *app-common
     deploy:
       replicas: 3
       resources:
@@ -14,10 +34,10 @@ services:
           memory: 256M
       restart_policy:
         condition: on-failure
-    networks:
-      - webnet
     volumes:
       - ../src:/app
+      - ../config/gunicorn.conf.py:/app/gunicorn.conf.py
+      - gunicorn-socket:/run/gunicorn
 
   redis:
     image: redis:alpine
@@ -33,6 +53,11 @@ services:
       - redis-data:/data
     networks:
       - webnet
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   nginx:
     image: nginx:alpine
@@ -40,6 +65,8 @@ services:
       - "80:80"
     volumes:
       - ../config/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ../static:/static
+      - gunicorn-socket:/run/gunicorn
     deploy:
       replicas: 1
       resources:
@@ -50,9 +77,15 @@ services:
         condition: on-failure
     networks:
       - webnet
+    healthcheck:
+      test: ["CMD", "service", "nginx", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
       
 networks:
   webnet:
 
 volumes:
   redis-data:
+  gunicorn-socket:

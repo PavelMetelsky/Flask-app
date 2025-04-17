@@ -1,43 +1,85 @@
-version: '3'
+version: '3.7'
+
+x-app-common: &app-common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.optimized
+  restart: unless-stopped
+  networks:
+    - monitoring-network
+  volumes:
+    - ../src:/app
+    - ../config/gunicorn.conf.py:/app/gunicorn.conf.py
+    - gunicorn-socket:/run/gunicorn
 
 services:
   flask-app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    <<: *app-common
+    container_name: flask_app
     ports:
       - "5000:5000"
     depends_on:
-      - redis
-    restart: always
-    volumes:
-      - ../src:/app
+      redis:
+        condition: service_healthy
     # Adding Prometheus metrics
     labels:
       - "prometheus.enable=true"
       - "prometheus.port=5000"
       - "prometheus.path=/metrics"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "--unix-socket", "/run/gunicorn/socket", "http://localhost/api/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   redis:
     image: redis:alpine
+    container_name: redis_service
     ports:
       - "6379:6379"
-    restart: always
+    restart: unless-stopped
+    networks:
+      - monitoring-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   prometheus:
     image: prom/prometheus:latest
+    container_name: prometheus_service
     ports:
       - "9090:9090"
     volumes:
       - ../config/prometheus.yml:/etc/prometheus/prometheus.yml
-    restart: always
+    restart: unless-stopped
+    depends_on:
+      flask-app:
+        condition: service_healthy
+    networks:
+      - monitoring-network
 
   grafana:
     image: grafana/grafana:latest
+    container_name: grafana_service
     ports:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_PASSWORD=admin
     depends_on:
       - prometheus
-    restart: always
+    restart: unless-stopped
+    volumes:
+      - grafana-data:/var/lib/grafana
+    networks:
+      - monitoring-network
+
+volumes:
+  grafana-data:
+  gunicorn-socket:
+
+networks:
+  monitoring-network:
+    driver: bridge

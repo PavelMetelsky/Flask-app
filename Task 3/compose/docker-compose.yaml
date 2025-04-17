@@ -1,18 +1,91 @@
-version: '3'
+version: '3.7'
+
+x-app-common: &app-common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.optimized
+  restart: unless-stopped
+  depends_on:
+    redis:
+      condition: service_healthy
+  volumes:
+    - ../src:/app
+    - ../config/gunicorn.conf.py:/app/gunicorn.conf.py
+    - gunicorn-socket:/run/gunicorn
+  networks:
+    - app-network
+  healthcheck:
+    test: ["CMD", "curl", "-f", "--unix-socket", "/run/gunicorn/socket", "http://localhost/api/ping"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 5s
 
 services:
+  # Main application
   flask-app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    ports:
-      - "5000:5000"
-    depends_on:
-      - redis
-    volumes:
-      - ../src:/app
+    <<: *app-common
+    container_name: flask_app
+    environment:
+      - FLASK_ENV=production
+    labels:
+      - "prometheus.enable=true"
+      - "prometheus.port=5000"
+      - "prometheus.path=/metrics"
 
+  # Initialization task (runs once and exits)
+  init-app:
+    <<: *app-common
+    container_name: flask_init
+    command: python -c "print('Initialization completed')" 
+    restart: "no"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Redis database
   redis:
     image: redis:alpine
+    container_name: redis_service
+    expose:
+      - "6379"
+    restart: unless-stopped
+    volumes:
+      - redis-data:/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Nginx as a reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: flask_proxy
     ports:
-      - "6379:6379"
+      - "80:80"
+    volumes:
+      - ../config/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ../static:/static
+      - gunicorn-socket:/run/gunicorn
+    depends_on:
+      flask-app:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "service", "nginx", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  redis-data:
+  gunicorn-socket:
+
+networks:
+  app-network:
+    driver: bridge

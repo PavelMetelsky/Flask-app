@@ -1,37 +1,74 @@
-version: '3'
+version: '3.7'
+
+x-app-common: &app-common
+  build:
+    context: ..
+    dockerfile: docker/Dockerfile.optimized
+  restart: unless-stopped
+  networks:
+    - nginx-network
+  volumes:
+    - ../src:/app
+    - ../config/gunicorn.conf.py:/app/gunicorn.conf.py
+    - gunicorn-socket:/run/gunicorn
 
 services:
   flask-app:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
-    # Only for internal network
-    expose:
-      - "5000"
+    <<: *app-common
+    container_name: flask_app
     depends_on:
-      - redis
-    restart: always
-    volumes:
-      - ../src:/app
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "--unix-socket", "/run/gunicorn/socket", "http://localhost/api/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
 
   redis:
     image: redis:alpine
+    container_name: redis_service
     expose:
       - "6379"
-    restart: always
+    restart: unless-stopped
     # Adding persistent storage for Redis
     volumes:
       - redis-data:/data
+    networks:
+      - nginx-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
   nginx:
     image: nginx:alpine
+    container_name: flask_proxy
     ports:
       - "80:80"
     volumes:
       - ../config/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ../static:/static
+      - gunicorn-socket:/run/gunicorn
+      - ../docker/fix-permissions.sh:/docker-entrypoint.d/40-fix-permissions.sh
     depends_on:
-      - flask-app
-    restart: always
+      flask-app:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - nginx-network
+    healthcheck:
+      test: ["CMD", "service", "nginx", "status"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   redis-data:
+  gunicorn-socket:
+
+networks:
+  nginx-network:
+    driver: bridge

@@ -5,25 +5,41 @@ WORKDIR /app
 COPY src/requirements.txt .
 
 RUN python -m venv /opt/venv && \
-    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt
+    /opt/venv/bin/pip install --no-cache-dir -r requirements.txt && \
+    /opt/venv/bin/pip install gunicorn==20.1.0
 
 FROM python:3.9-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y curl && \
-    rm -rf /var/lib/apt/lists/*
+LABEL maintainer="developer" \
+      version="1.0" \
+      description="Flask application with Redis and Gunicorn"
+
+RUN apt-get update && apt-get install -y curl netcat-openbsd && \
+    rm -rf /var/lib/apt/lists/* && \
+    adduser --disabled-password --gecos "" appuser && \
+    mkdir -p /app /run/gunicorn && \
+    chown -R appuser:appuser /app && \
+    chown -R appuser:appuser /run/gunicorn
 
 COPY --from=builder /opt/venv /opt/venv
 
 COPY src/app/ /app/app/
 COPY src/run.py /app/
+COPY docker/entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh && \
+    chown -R appuser:appuser /app
+
+USER appuser
 
 ENV PATH="/opt/venv/bin:$PATH"
 
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:5000/api/ping || exit 1
+  CMD curl -f --unix-socket /run/gunicorn/socket http://localhost/api/ping || exit 1
 
 EXPOSE 5000
 
-CMD ["python", "run.py"]
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["gunicorn", "--config", "gunicorn.conf.py", "run:app"]
